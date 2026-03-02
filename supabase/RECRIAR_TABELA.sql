@@ -12,6 +12,7 @@ DROP TABLE IF EXISTS liq_investimentos CASCADE;
 -- 2. Criar tabela com schema correto
 CREATE TABLE liq_investimentos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id),
   nome TEXT NOT NULL,
   valor_aplicado DECIMAL(15, 2) NOT NULL CHECK (valor_aplicado >= 0),
   cnpj_fundo TEXT,
@@ -48,5 +49,7 @@ GRANT ALL ON TABLE public.liq_investimentos TO anon;
 GRANT ALL ON TABLE public.liq_investimentos TO authenticated;
 GRANT ALL ON TABLE public.liq_investimentos TO service_role;
 
--- 6. Recarregar schema cache do Supabase (API)
+-- 6. Execute ADICIONAR_AUTH_RLS.sql para habilitar RLS
+
+-- 7. Recarregar schema cache do Supabase (API)
 NOTIFY pgrst, 'reload schema';

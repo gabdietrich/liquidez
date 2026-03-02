@@ -26,10 +26,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/client";
 import type { Investimento } from "@/types/database";
 import { calcularTimelineLiquidez } from "@/lib/timeline-liquidez";
 import { getDiasPermanencia } from "@/lib/ir-regressivo";
+import { EditInvestimentoDialog } from "@/components/EditInvestimentoDialog";
+import { DeleteInvestimentoDialog } from "@/components/DeleteInvestimentoDialog";
 
 // Dados mock para desenvolvimento sem Supabase
 const MOCK_INVESTIMENTOS: Investimento[] = [
@@ -78,22 +80,26 @@ export default function InvestimentosPage() {
     useState<Investimento[]>(MOCK_INVESTIMENTOS);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function fetchInvestimentos() {
-      try {
-        if (isSupabaseConfigured() && supabase) {
-          const { data, error } = await supabase
-            .from("liq_investimentos")
-            .select("*")
-            .order("data_vencimento", { ascending: true });
-          if (!error && data && data.length > 0) {
-            setInvestimentos(data as Investimento[]);
-          }
+  async function fetchInvestimentos() {
+    try {
+      const supabase = createClient();
+      if (supabase) {
+        const { data, error } = await supabase
+          .from("liq_investimentos")
+          .select("*")
+          .order("data_vencimento", { ascending: true });
+        if (!error && data && data.length > 0) {
+          setInvestimentos(data as Investimento[]);
+        } else if (!error && (!data || data.length === 0)) {
+          setInvestimentos([]);
         }
-      } finally {
-        setLoading(false);
       }
+    } finally {
+      setLoading(false);
     }
+  }
+
+  useEffect(() => {
     fetchInvestimentos();
   }, []);
 
@@ -228,10 +234,24 @@ export default function InvestimentosPage() {
                   <TableHead>Liquidez</TableHead>
                   <TableHead>Categoria</TableHead>
                   <TableHead>Dias (IR)</TableHead>
+                  <TableHead className="w-[100px] text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {investimentos.map((inv) => {
+                {investimentos.length === 0 && !loading ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={7}
+                      className="h-24 text-center text-muted-foreground"
+                    >
+                      Nenhum investimento.{" "}
+                      <Link href="/input" className="text-primary hover:underline">
+                        Adicionar
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                investimentos.map((inv) => {
                   const hoje = new Date().toISOString().slice(0, 10);
                   const dias =
                     new Date(inv.data_vencimento) >= new Date(hoje)
@@ -255,9 +275,22 @@ export default function InvestimentosPage() {
                       <TableCell className="text-muted-foreground">
                         {dias !== "-" ? `${dias} dias` : "-"}
                       </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <EditInvestimentoDialog
+                            investimento={inv}
+                            onSaved={fetchInvestimentos}
+                          />
+                          <DeleteInvestimentoDialog
+                            investimento={inv}
+                            onDeleted={fetchInvestimentos}
+                          />
+                        </div>
+                      </TableCell>
                     </TableRow>
                   );
-                })}
+                })
+                )}
               </TableBody>
             </Table>
           </div>

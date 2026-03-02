@@ -10,6 +10,7 @@
 -- Tabela principal
 CREATE TABLE IF NOT EXISTS liq_investimentos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id),
   nome TEXT NOT NULL,
   valor_aplicado DECIMAL(15, 2) NOT NULL CHECK (valor_aplicado >= 0),
   cnpj_fundo TEXT,
@@ -43,10 +44,9 @@ CREATE TRIGGER update_liq_investimentos_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
 
--- Permissões explícitas para o app (chave anon) funcionar
+-- Permissões explícitas para o app funcionar
 GRANT ALL ON TABLE public.liq_investimentos TO anon;
 GRANT ALL ON TABLE public.liq_investimentos TO authenticated;
 GRANT ALL ON TABLE public.liq_investimentos TO service_role;
 
--- RLS desabilitado para simplificar (app pessoal). Para produção, habilite e crie policies.
--- ALTER TABLE liq_investimentos ENABLE ROW LEVEL SECURITY;
+-- Depois execute supabase/ADICIONAR_AUTH_RLS.sql para habilitar login e RLS

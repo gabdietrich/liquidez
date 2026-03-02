@@ -23,7 +23,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { extrairInvestimentosLLM } from "@/lib/extrator-extrato";
 import type { InvestimentoInsert } from "@/types/database";
-import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/client";
 import { ImageUploader } from "@/components/ImageUploader";
 
 const EXEMPLO_EXTRATO = `CDB XP 12% a.a. - R$ 50.000,00 - Aplicação: 15/01/2024 - Vencimento: 15/01/2025 - CNPJ: 33.221.452/0001-00
@@ -62,18 +62,23 @@ export default function InputInteligentePage() {
 
   async function handleSalvar() {
     if (extraidos.length === 0) return;
-    if (!isSupabaseConfigured() || !supabase) {
-      setErro(
-        "Configure as variáveis do Supabase (mesmas do projeto Laszlo) no .env.local"
-      );
+    const supabase = createClient();
+    if (!supabase) {
+      setErro("Configure as variáveis do Supabase no .env.local");
+      return;
+    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      setErro("Faça login para salvar.");
       return;
     }
     setLoading(true);
     setErro(null);
     try {
+      const rows = extraidos.map((e) => ({ ...e, user_id: user.id }));
       const { error } = await supabase
         .from("liq_investimentos")
-        .insert(extraidos as unknown as Record<string, unknown>[]);
+        .insert(rows as unknown as Record<string, unknown>[]);
       if (error) throw new Error(error.message);
       router.push("/investimentos");
     } catch (e) {
@@ -208,18 +213,13 @@ export default function InputInteligentePage() {
             </div>
             <Button
               onClick={handleSalvar}
-              disabled={loading || !isSupabaseConfigured()}
+              disabled={loading}
             >
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : null}
               Salvar no Banco
             </Button>
-            {!isSupabaseConfigured() && (
-              <p className="text-sm text-muted-foreground">
-                Configure as variáveis do Supabase para salvar.
-              </p>
-            )}
           </CardContent>
         </Card>
       )}

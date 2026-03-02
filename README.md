@@ -21,15 +21,23 @@ App para visualizar janelas de liquidez, vencimentos e rentabilidade real de inv
    - Copie `.env.example` para `.env.local`
    - Preencha `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - Execute o script `supabase/EXECUTAR_NO_SUPABASE.sql` no SQL Editor do Supabase
+   - Execute o script `supabase/ADICIONAR_AUTH_RLS.sql` para login e RLS
    - Para extração com IA: configure `OPENAI_API_KEY` e opcionalmente `OPENAI_MODEL` (padrão: gpt-4o)
 
-3. Rode o app:
+3. **Auth (Supabase Dashboard):**
+   - Authentication → Providers → Email: habilite "Email"
+   - Authentication → URL Configuration: adicione em Redirect URLs:
+     - `http://localhost:3000/auth/callback` (dev)
+     - `https://seu-dominio.netlify.app/auth/callback` (prod)
+
+4. Rode o app:
    ```bash
    npm run dev
    ```
 
 ## Funcionalidades
 
+- **Login:** Proteção por email e senha via Supabase Auth. Cada usuário vê apenas seus investimentos.
 - **Input Inteligente:** Cole o extrato bancário em um textarea; usa GPT-4o para extrair investimentos de texto livre. Fallback para regex se a API não estiver configurada.
 - **Timeline de Liquidez:** Dashboard mostrando quanto terá disponível mês a mês nos próximos 2 anos.
 - **IR Regressivo:** Cálculo automático conforme tempo de permanência:
@@ -88,3 +96,4 @@ Configure as variáveis em Site settings → Environment variables após o prime
 | data_vencimento| DATE    | Data do vencimento                  |
 | tipo_liquidez  | TEXT    | D+0, D+30, No Vencimento           |
 | categoria      | TEXT    | Reserva, Longo Prazo, Flipping     |
+| user_id        | UUID    | Dono do registro (auth.users)      |
