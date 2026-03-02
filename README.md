@@ -1,36 +1,90 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Liquidez Dashboard
 
-## Getting Started
+App para visualizar janelas de liquidez, vencimentos e rentabilidade real de investimentos.
 
-First, run the development server:
+## Stack
 
+- **Framework:** Next.js (App Router)
+- **Estilização:** Tailwind CSS + Shadcn/UI
+- **Banco:** Supabase (PostgreSQL)
+- **Ícones:** Lucide React
+
+## Setup
+
+1. Instale as dependências:
+   ```bash
+   npm install
+   ```
+
+2. Configure o Supabase:
+   - Crie um projeto em [supabase.com](https://supabase.com)
+   - Copie `.env.example` para `.env.local`
+   - Preencha `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - Execute o script `supabase/EXECUTAR_NO_SUPABASE.sql` no SQL Editor do Supabase
+   - Para extração com IA: configure `OPENAI_API_KEY` e opcionalmente `OPENAI_MODEL` (padrão: gpt-4o)
+
+3. Rode o app:
+   ```bash
+   npm run dev
+   ```
+
+## Funcionalidades
+
+- **Input Inteligente:** Cole o extrato bancário em um textarea; usa GPT-4o para extrair investimentos de texto livre. Fallback para regex se a API não estiver configurada.
+- **Timeline de Liquidez:** Dashboard mostrando quanto terá disponível mês a mês nos próximos 2 anos.
+- **IR Regressivo:** Cálculo automático conforme tempo de permanência:
+  - Até 180 dias: 22,5%
+  - 181 a 360 dias: 20%
+  - 361 a 720 dias: 17,5%
+  - Acima de 720 dias: 15%
+
+## Deploy no Netlify
+
+1. **Crie um repositório Git** (se ainda não tiver):
+   ```bash
+   git init
+   git add .
+   git commit -m "Initial commit"
+   git branch -M main
+   git remote add origin https://github.com/SEU_USUARIO/liquidez-dashboard.git
+   git push -u origin main
+   ```
+
+2. **Conecte ao Netlify:**
+   - Acesse [app.netlify.com](https://app.netlify.com)
+   - "Add new site" → "Import an existing project"
+   - Conecte seu GitHub/GitLab e selecione o repositório
+   - Netlify detecta Next.js automaticamente
+
+3. **Configure as variáveis de ambiente** (Site settings → Environment variables):
+   | Variável | Valor |
+   |----------|-------|
+   | `NEXT_PUBLIC_SUPABASE_URL` | `https://xxx.supabase.co` |
+   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | sua chave anon |
+   | `OPENAI_API_KEY` | sua chave OpenAI |
+   | `OPENAI_MODEL` | `gpt-4o` (opcional) |
+
+4. **Deploy** — Netlify faz o build e publica automaticamente.
+
+**Alternativa: Netlify CLI** (deploy rápido sem Git):
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install -g netlify-cli
+netlify login
+netlify init
+netlify deploy --build --prod
 ```
+Configure as variáveis em Site settings → Environment variables após o primeiro deploy.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Schema (liq_investimentos)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Campo           | Tipo    | Descrição                          |
+|----------------|---------|------------------------------------|
+| nome           | TEXT    | Nome do investimento               |
+| valor_aplicado | DECIMAL | Valor aplicado                     |
+| cnpj_fundo     | TEXT    | CNPJ do fundo (opcional)           |
+| data_aplicacao | DATE    | Data da aplicação                  |
+| data_vencimento| DATE    | Data do vencimento                  |
+| tipo_liquidez  | TEXT    | D+0, D+30, No Vencimento           |
+| categoria      | TEXT    | Reserva, Longo Prazo, Flipping     |
