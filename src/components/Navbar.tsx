@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LogOut } from "lucide-react";
+import { LogOut, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 
@@ -54,6 +54,13 @@ export function Navbar() {
                 className="text-muted-foreground hover:text-foreground"
               >
                 Investimentos
+              </Link>
+              <Link
+                href="/memorial"
+                className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground"
+              >
+                <Trophy className="h-4 w-4" />
+                Memorial
               </Link>
             </>
           )}

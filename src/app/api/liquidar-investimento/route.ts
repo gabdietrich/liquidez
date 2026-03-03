@@ -67,20 +67,21 @@ export async function POST(request: NextRequest) {
     console.error("Erro ao gerar resumo:", e);
   }
 
+  const lucroLiquido = valorLiquido - Number(inv.valor_aplicado);
   const historico = {
     user_id: user.id,
-    nome: inv.nome,
     valor_aplicado: inv.valor_aplicado,
-    valor_bruto_resgate: valor_bruto,
-    ir,
-    valor_liquido: valorLiquido,
-    cnpj_fundo: inv.cnpj_fundo,
+    valor_resgatado_bruto: valor_bruto,
+    valor_resgatado_liquido: valorLiquido,
+    lucro_liquido: lucroLiquido,
+    nome: inv.nome,
+    categoria: inv.categoria,
     data_aplicacao: inv.data_aplicacao,
+    resumo_ai: resumo || null,
     data_vencimento: inv.data_vencimento,
     data_resgate: dataResgate.toISOString().slice(0, 10),
     tipo_liquidez: inv.tipo_liquidez,
-    categoria: inv.categoria,
-    resumo_narrativa: resumo || null,
+    cnpj_fundo: inv.cnpj_fundo,
   };
 
   const { error: insertError } = await supabase

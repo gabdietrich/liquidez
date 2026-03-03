@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { FileText, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -128,10 +129,23 @@ export default function InputInteligentePage() {
             <p className="mb-2 text-sm font-medium">Ou envie uma imagem do extrato</p>
             <ImageUploader
               onExtract={(dados) => {
+                if (dados == null || !Array.isArray(dados) || dados.length === 0) {
+                  toast.error(
+                    "Nenhum investimento identificado. Tente um print com mais contraste ou com os nomes dos ativos visíveis"
+                  );
+                  setExtraidos([]);
+                  setErro(null);
+                  return;
+                }
                 setExtraidos(dados);
                 setErro(null);
               }}
-              onError={setErro}
+              onError={(message) => {
+                setErro(message);
+                if (message && !message.includes("Nenhum investimento identificado")) {
+                  toast.error(message);
+                }
+              }}
               onAviso={setAviso}
               disabled={loading}
             />

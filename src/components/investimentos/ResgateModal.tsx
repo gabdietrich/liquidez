@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { CircleDollarSign, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,7 @@ interface ResgateModalProps {
 }
 
 export function ResgateModal({ investimento, onLiquidado }: ResgateModalProps) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -90,20 +92,21 @@ export function ResgateModal({ investimento, onLiquidado }: ResgateModalProps) {
       const summaryData = await resSummary.json().catch(() => ({}));
       const resumo = resSummary.ok ? summaryData.summary ?? "" : "";
 
+      const lucroLiquido = valorLiquido - Number(investimento.valor_aplicado);
       const historico = {
         user_id: user?.id ?? null,
-        nome: investimento.nome,
         valor_aplicado: investimento.valor_aplicado,
-        valor_bruto_resgate: valorBruto,
-        ir,
-        valor_liquido: valorLiquido,
-        cnpj_fundo: investimento.cnpj_fundo,
+        valor_resgatado_bruto: valorBruto,
+        valor_resgatado_liquido: valorLiquido,
+        nome: investimento.nome,
+        categoria: investimento.categoria,
         data_aplicacao: investimento.data_aplicacao,
+        resumo_ai: resumo || null,
+        lucro_liquido: lucroLiquido,
         data_vencimento: investimento.data_vencimento,
         data_resgate: dataResgate.toISOString().slice(0, 10),
         tipo_liquidez: investimento.tipo_liquidez,
-        categoria: investimento.categoria,
-        resumo_narrativa: resumo || null,
+        cnpj_fundo: investimento.cnpj_fundo,
       };
 
       const { error: insertError } = await supabase
@@ -124,7 +127,12 @@ export function ResgateModal({ investimento, onLiquidado }: ResgateModalProps) {
       }
 
       setOpen(false);
-      toast.success("Investimento movido para o Memorial de Conquistas");
+      toast.success("Investimento imortalizado!", {
+        action: {
+          label: "Ver no Memorial",
+          onClick: () => router.push("/memorial"),
+        },
+      });
       onLiquidado?.();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Erro ao liquidar.";

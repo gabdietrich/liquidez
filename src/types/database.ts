@@ -29,16 +29,16 @@ export interface HistoricoLiquidacao {
   user_id: string;
   nome: string;
   valor_aplicado: number;
-  valor_bruto_resgate: number;
-  ir: number;
-  valor_liquido: number;
+  valor_resgatado_bruto: number;
+  valor_resgatado_liquido: number;
+  lucro_liquido: number;
   cnpj_fundo: string | null;
   data_aplicacao: string;
   data_vencimento: string;
   data_resgate: string;
   tipo_liquidez: TipoLiquidez;
   categoria: Categoria;
-  resumo_narrativa: string | null;
+  resumo_ai: string | null;
   created_at?: string;
 }
 

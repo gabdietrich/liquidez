@@ -86,11 +86,15 @@ export function ImageUploader({
         }
 
         const { dados, aviso } = await res.json();
-        if (Array.isArray(dados)) {
-          onExtract(dados);
-          if (aviso) onAviso?.(aviso);
+        const lista = Array.isArray(dados) ? dados : [];
+        onExtract(lista);
+        if (lista.length === 0) {
+          onError?.(
+            "Nenhum investimento identificado. Tente um print com mais contraste ou com os nomes dos ativos visíveis"
+          );
         } else {
-          onError?.("Nenhum investimento encontrado.");
+          onError?.(null);
+          if (aviso) onAviso?.(aviso);
         }
       } catch (e) {
         onError?.(e instanceof Error ? e.message : "Erro ao processar arquivos.");

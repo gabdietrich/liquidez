@@ -33,6 +33,7 @@ import { getDiasPermanencia } from "@/lib/ir-regressivo";
 import { EditInvestimentoDialog } from "@/components/EditInvestimentoDialog";
 import { DeleteInvestimentoDialog } from "@/components/DeleteInvestimentoDialog";
 import { ResgateModal } from "@/components/investimentos/ResgateModal";
+import { AssetTabs } from "@/components/AssetTabs";
 
 // Dados mock para desenvolvimento sem Supabase
 const MOCK_INVESTIMENTOS: Investimento[] = [
@@ -109,6 +110,7 @@ export default function InvestimentosPage() {
 
   return (
     <div className="space-y-8">
+      <AssetTabs />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Dashboard de Liquidez</h1>

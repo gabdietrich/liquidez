@@ -9,16 +9,16 @@ CREATE TABLE IF NOT EXISTS liq_historico (
   user_id UUID REFERENCES auth.users(id),
   nome TEXT NOT NULL,
   valor_aplicado DECIMAL(15, 2) NOT NULL,
-  valor_bruto_resgate DECIMAL(15, 2) NOT NULL,
-  ir DECIMAL(15, 2) NOT NULL DEFAULT 0,
-  valor_liquido DECIMAL(15, 2) NOT NULL,
+  valor_resgatado_bruto DECIMAL(15, 2) NOT NULL,
+  valor_resgatado_liquido DECIMAL(15, 2) NOT NULL,
+  lucro_liquido DECIMAL(15, 2) NOT NULL,
   cnpj_fundo TEXT,
   data_aplicacao DATE NOT NULL,
   data_vencimento DATE NOT NULL,
   data_resgate DATE NOT NULL,
   tipo_liquidez TEXT NOT NULL,
   categoria TEXT NOT NULL,
-  resumo_narrativa TEXT,
+  resumo_ai TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

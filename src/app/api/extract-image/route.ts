@@ -36,7 +36,7 @@ function validarEConverter(item: unknown): InvestimentoInsert | null {
   const obj = item as Record<string, unknown>;
 
   const nome = typeof obj.nome === "string" ? obj.nome.trim() : "";
-  const valor = parseValor(obj.valor_aplicado);
+  const valor = parseValor(obj.valor_aplicado ?? obj.valor_investido);
   const dataAplic = obj.data_aplicacao;
   const dataVenc = obj.data_vencimento;
   const tipo = obj.tipo_liquidez;
@@ -45,8 +45,10 @@ function validarEConverter(item: unknown): InvestimentoInsert | null {
 
   if (!nome || !(valor > 0)) return null;
 
-  const dataAplicStr = formatarDataParaISO(dataAplic);
-  const dataVencStr = formatarDataParaISO(dataVenc);
+  let dataAplicStr = formatarDataParaISO(dataAplic);
+  let dataVencStr = formatarDataParaISO(dataVenc);
+  if (!dataVencStr) dataVencStr = dataAplicStr ?? hojeISO();
+  if (!dataAplicStr) dataAplicStr = dataVencStr ?? hojeISO();
   if (!dataAplicStr || !dataVencStr) return null;
 
   const tipoLiquidez = VALID_TIPOS.includes(tipo as TipoLiquidez)
@@ -70,6 +72,10 @@ function validarEConverter(item: unknown): InvestimentoInsert | null {
   };
 }
 
+function hojeISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function formatarDataParaISO(val: unknown): string | null {
   if (!val) return null;
   if (typeof val === "string") {
@@ -87,6 +93,15 @@ const SYSTEM_PROMPT_BASE = `Você é um especialista financeiro. Serão fornecid
 
 CONSOLIDE as informações de TODAS as imagens enviadas em um único array de investimentos. Se o mesmo investimento (mesmo ativo/nome) aparecer em mais de uma imagem, combine os dados em um único objeto, priorizando os valores mais completos.`;
 
+const SYSTEM_PROMPT_TABELAS_RESUMO = `
+
+TABELAS DE RESUMO (dados parciais):
+- Trate cada LINHA da tabela como um investimento individual. Uma linha = um objeto no array.
+- Mapeie o campo "valor investido (R$)" ou "valor investido" para valor_aplicado.
+- Flexibilidade de datas: se data_aplicacao não estiver visível na tabela, retorne null para esse campo (não ignore o registro).
+- Data de vencimento: extraia a data que aparecer no final do nome do produto (ex: "CDB C6 26/06/2028" → data_vencimento "2028-06-26"). Se estiver em DD/MM/AAAA no nome, converta para AAAA-MM-DD no JSON.
+- Retorne SEMPRE um array de objetos, mesmo que encontre apenas uma linha válida.`;
+
 const SYSTEM_PROMPT_PDF_CONTEXT = `
 
 CONTEXTO PARA PDF: As imagens enviadas representam páginas sequenciais de um único documento financeiro. Analise TODAS elas para identificar e extrair TODOS os ativos mencionados. Se um ativo começar em uma página e terminar em outra, consolide as informações em um único objeto.`;
@@ -98,7 +113,7 @@ Formato OBRIGATÓRIO: retorne SEMPRE um array JSON. Exemplo:
   {
     "nome": "Nome do ativo",
     "valor_aplicado": 0.00,
-    "data_aplicacao": "AAAA-MM-DD",
+    "data_aplicacao": "AAAA-MM-DD" ou null,
     "data_vencimento": "AAAA-MM-DD",
     "tipo_liquidez": "No Vencimento" ou "D+0" ou "D+30",
     "categoria": "Flipping" ou "Reserva" ou "Longo Prazo"
@@ -108,12 +123,14 @@ Formato OBRIGATÓRIO: retorne SEMPRE um array JSON. Exemplo:
 Regras:`;
 
 const SYSTEM_PROMPT_RULES = `
-- Se houver MÚLTIPLOS investimentos na imagem (tabela, lista, etc.), retorne um array com um objeto para cada investimento.
-- Se houver APENAS UM investimento, retorne um array com um único objeto: [ { "nome": "...", ... } ].
-- O formato deve ser SEMPRE [ { "nome": "...", ... }, ... ] — array de objetos, nunca um objeto único.
-- valor_aplicado: apenas o número, use ponto para decimais (ex: 50000.00)
-- categoria: infira com base no nome do ativo ou data de vencimento
-- Se você não conseguir encontrar um campo, retorne null para ele. Não invente dados.
+- Cada linha de uma tabela de resumo = um investimento. Retorne um objeto por linha.
+- Se houver MÚLTIPLOS investimentos (tabela, lista), retorne um array com um objeto para cada um.
+- Se houver APENAS UM investimento/linha válida, retorne array com um único objeto: [ { "nome": "...", ... } ]. Nunca retorne um objeto sozinho, sempre um array.
+- valor_aplicado: use o valor de "valor investido (R$)" quando a tabela tiver essa coluna. Número com ponto para decimais (ex: 50000.00).
+- data_aplicacao: se não estiver na tabela/imagem, retorne null (mantenha o registro).
+- data_vencimento: extraia do final do nome do produto quando no formato DD/MM/AAAA (ex: CDB C6 26/06/2028 → "2028-06-26").
+- categoria: infira com base no nome do ativo ou data de vencimento.
+- Para campos não encontrados, retorne null. Não invente dados.
 - Se não houver investimentos em nenhuma imagem, retorne [].`;
 
 const MAX_PAGES_WARNING = 10;
@@ -130,12 +147,34 @@ export async function POST(request: NextRequest) {
   let images: Array<{ base64: string; mimeType: string }> = [];
   let isFromPdf = false;
   let aviso: string | undefined;
-  try {
-    const body = await request.json();
 
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("Erro ao parsear JSON:", msg);
+    const isSizeError = /body|size|limit|exceeded/i.test(msg);
+    return NextResponse.json(
+      {
+        error: isSizeError
+          ? "Arquivo muito grande. Tente um PDF ou imagem menor (máx. ~7MB)."
+          : "Corpo da requisição inválido.",
+      },
+      { status: 400 }
+    );
+  }
+
+  try {
     if (typeof body.pdf === "string" && body.pdf.length > 0) {
       isFromPdf = true;
       const pdfBase64 = body.pdf.replace(/^data:application\/pdf;base64,/, "");
+      if (!pdfBase64 || pdfBase64.length < 100) {
+        return NextResponse.json(
+          { error: "PDF inválido ou corrompido." },
+          { status: 400 }
+        );
+      }
       const pdfImages = await pdfToImages(pdfBase64);
       images.push(...pdfImages);
       if (pdfImages.length > MAX_PAGES_WARNING) {
@@ -161,9 +200,14 @@ export async function POST(request: NextRequest) {
       }];
     }
   } catch (e) {
-    console.error("Erro ao processar entrada:", e);
+    console.error("Erro ao processar PDF/imagens:", e);
+    const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json(
-      { error: "Corpo da requisição inválido ou PDF inválido" },
+      {
+        error: /pdf|invalid|corrupt/i.test(msg)
+          ? "PDF inválido ou não suportado. Tente outro arquivo."
+          : "Erro ao processar PDF. Tente uma imagem (PNG/JPG) em vez disso.",
+      },
       { status: 400 }
     );
   }
@@ -187,6 +231,7 @@ export async function POST(request: NextRequest) {
 
   const systemPrompt =
     SYSTEM_PROMPT_BASE +
+    SYSTEM_PROMPT_TABELAS_RESUMO +
     (isFromPdf ? SYSTEM_PROMPT_PDF_CONTEXT : "") +
     SYSTEM_PROMPT_FORMAT +
     SYSTEM_PROMPT_RULES;
@@ -218,12 +263,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log("LLM Raw Response:", content);
+
+    let jsonStr = content.trim();
+    if (jsonStr.startsWith("```")) {
+      jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "").trim();
+    }
+
     let parsed: unknown;
     try {
-      parsed = JSON.parse(content);
-    } catch {
+      parsed = JSON.parse(jsonStr);
+    } catch (parseErr) {
+      console.error("Falha ao parsear JSON da LLM:", parseErr);
       return NextResponse.json(
-        { error: "Resposta do modelo não é JSON válido" },
+        { error: "Falha ao processar estrutura da tabela" },
         { status: 500 }
       );
     }
