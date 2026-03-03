@@ -5,8 +5,26 @@ import { ImageIcon, Loader2 } from "lucide-react";
 import type { InvestimentoInsert } from "@/types/database";
 
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/jpg"];
-const ACCEPTED_PDF_TYPE = "application/pdf";
-const ACCEPTED_TYPES = [...ACCEPTED_IMAGE_TYPES, ACCEPTED_PDF_TYPE];
+const ACCEPTED_PDF_TYPES = ["application/pdf", "application/x-pdf"];
+const ACCEPTED_TYPES = [...ACCEPTED_IMAGE_TYPES, ...ACCEPTED_PDF_TYPES];
+
+function isPdfFile(file: File): boolean {
+  const type = file.type?.toLowerCase();
+  if (ACCEPTED_PDF_TYPES.includes(type)) return true;
+  if (!type && file.name?.toLowerCase().endsWith(".pdf")) return true;
+  return false;
+}
+
+function isAcceptedFile(file: File): boolean {
+  const type = file.type?.toLowerCase();
+  if (ACCEPTED_TYPES.includes(type)) return true;
+  if (!type || type === "") {
+    const ext = file.name?.toLowerCase().split(".").pop();
+    if (ext === "pdf") return true;
+    if (["png", "jpg", "jpeg"].includes(ext ?? "")) return true;
+  }
+  return false;
+}
 
 interface ImageUploaderProps {
   onExtract: (dados: InvestimentoInsert[]) => void;
@@ -26,7 +44,7 @@ export function ImageUploader({
 
   const processFiles = useCallback(
     async (files: File[]) => {
-      const validFiles = files.filter((f) => ACCEPTED_TYPES.includes(f.type));
+      const validFiles = files.filter((f) => isAcceptedFile(f));
       if (validFiles.length === 0) {
         onError?.("Formato inválido. Use PNG, JPG ou PDF.");
         return;
@@ -37,8 +55,8 @@ export function ImageUploader({
       onAviso?.(null);
 
       try {
-        const pdfFiles = validFiles.filter((f) => f.type === ACCEPTED_PDF_TYPE);
-        const imageFiles = validFiles.filter((f) => ACCEPTED_IMAGE_TYPES.includes(f.type));
+        const pdfFiles = validFiles.filter((f) => isPdfFile(f));
+        const imageFiles = validFiles.filter((f) => !isPdfFile(f));
 
         const body: { pdf?: string; images?: Array<{ base64: string; mimeType: string }> } = {};
 
@@ -143,7 +161,7 @@ export function ImageUploader({
     >
       <input
         type="file"
-        accept="image/png,image/jpeg,image/jpg,application/pdf"
+        accept="image/png,image/jpeg,image/jpg,application/pdf,.pdf"
         multiple
         onChange={handleFileInput}
         className="absolute inset-0 cursor-pointer opacity-0"
