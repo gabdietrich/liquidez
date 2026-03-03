@@ -2,11 +2,16 @@
 
 import { useState, useCallback } from "react";
 import { ImageIcon, Loader2 } from "lucide-react";
+import imageCompression from "browser-image-compression";
 import type { InvestimentoInsert } from "@/types/database";
 
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/jpg"];
 const ACCEPTED_PDF_TYPES = ["application/pdf", "application/x-pdf"];
 const ACCEPTED_TYPES = [...ACCEPTED_IMAGE_TYPES, ...ACCEPTED_PDF_TYPES];
+
+/** Imagens comprimidas para no máximo 1MB para evitar Payload Too Large e acelerar upload. */
+const MAX_IMAGE_SIZE_MB = 1;
+const MAX_PDF_SIZE_BYTES = 5 * 1024 * 1024;
 
 function isPdfFile(file: File): boolean {
   const type = file.type?.toLowerCase();
@@ -61,16 +66,19 @@ export function ImageUploader({
         const body: { pdf?: string; images?: Array<{ base64: string; mimeType: string }> } = {};
 
         if (pdfFiles.length > 0) {
-          const pdfBase64 = await fileToBase64(pdfFiles[0]);
+          const pdfFile = pdfFiles[0];
+          if (pdfFile.size > MAX_PDF_SIZE_BYTES) {
+            onError?.(`PDF muito grande (${(pdfFile.size / 1024 / 1024).toFixed(1)}MB). Use um arquivo menor ou envie imagens (PNG/JPG) do extrato.`);
+            setLoading(false);
+            return;
+          }
+          const pdfBase64 = await fileToBase64(pdfFile);
           body.pdf = pdfBase64;
         }
 
         if (imageFiles.length > 0) {
           body.images = await Promise.all(
-            imageFiles.map(async (file) => ({
-              base64: await fileToBase64(file),
-              mimeType: file.type,
-            }))
+            imageFiles.map((file) => compressImageIfNeeded(file))
           );
         }
 
@@ -81,8 +89,28 @@ export function ImageUploader({
         });
 
         if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error ?? `Erro ${res.status}`);
+          const bodyText = await res.text();
+          const errBody = (() => {
+            try {
+              return bodyText ? JSON.parse(bodyText) : {};
+            } catch {
+              return { raw: bodyText };
+            }
+          })();
+          console.error("[Upload] Resposta de erro da API:", res.status, errBody);
+
+          const statusMsg =
+            res.status === 504
+              ? "Erro 504: O servidor demorou demais."
+              : res.status === 413
+                ? "Erro 413: Arquivo grande demais."
+                : res.status === 502 || res.status === 503
+                  ? `Erro ${res.status}: Serviço temporariamente indisponível.`
+                  : typeof errBody === "object" && errBody !== null && "error" in errBody
+                    ? `Erro ${res.status}: ${String((errBody as { error?: string }).error ?? "Falha na extração.")}`
+                    : `Erro ${res.status}: Falha na extração.`;
+
+          throw new Error(statusMsg);
         }
 
         const { dados, aviso } = await res.json();
@@ -97,7 +125,9 @@ export function ImageUploader({
           if (aviso) onAviso?.(aviso);
         }
       } catch (e) {
-        onError?.(e instanceof Error ? e.message : "Erro ao processar arquivos.");
+        const msg = e instanceof Error ? e.message : "Erro ao processar arquivos.";
+        console.error("[Upload] Erro no upload:", e);
+        onError?.(msg);
       } finally {
         setLoading(false);
       }
@@ -116,6 +146,25 @@ export function ImageUploader({
       reader.onerror = () => reject(reader.error);
       reader.readAsDataURL(file);
     });
+  }
+
+  /** Comprime imagem (ex.: prints iPhone em alta resolução) para no máximo 1MB antes do envio. */
+  async function compressImageIfNeeded(file: File): Promise<{ base64: string; mimeType: string }> {
+    const isImage =
+      ACCEPTED_IMAGE_TYPES.includes(file.type?.toLowerCase() ?? "") ||
+      /\.(png|jpe?g)$/i.test(file.name ?? "");
+    if (!isImage) {
+      const b64 = await fileToBase64(file);
+      return { base64: b64, mimeType: file.type || "image/jpeg" };
+    }
+    const compressed = await imageCompression(file, {
+      maxSizeMB: MAX_IMAGE_SIZE_MB,
+      maxWidthOrHeight: 1920,
+      useWebWorker: true,
+      fileType: "image/jpeg",
+    });
+    const base64 = await fileToBase64(compressed);
+    return { base64, mimeType: "image/jpeg" };
   }
 
   function handleDragEnter(e: React.DragEvent) {

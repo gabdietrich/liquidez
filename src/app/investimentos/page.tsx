@@ -29,7 +29,11 @@ import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/client";
 import type { Investimento } from "@/types/database";
 import { calcularTimelineLiquidez } from "@/lib/timeline-liquidez";
-import { getDiasPermanencia } from "@/lib/ir-regressivo";
+import {
+  estimarValorAtualCDIRapido,
+  type TaxasMercado,
+} from "@/lib/market-data";
+import { getDiasPermanencia, calcularIRRegressivo } from "@/lib/ir-regressivo";
 import { EditInvestimentoDialog } from "@/components/EditInvestimentoDialog";
 import { DeleteInvestimentoDialog } from "@/components/DeleteInvestimentoDialog";
 import { ResgateModal } from "@/components/investimentos/ResgateModal";
@@ -77,10 +81,42 @@ function formatarValor(v: number) {
   }).format(v);
 }
 
+function valorAtualEstimado(
+  inv: Investimento,
+  taxas: TaxasMercado | null
+): number | null {
+  const indexador = (inv.indexador ?? "").toUpperCase();
+  const taxa = inv.taxa_contratada;
+  if (indexador !== "CDI" || taxa == null || taxa <= 0) return null;
+  const cdiAnual = taxas?.cdiAnualizadoAproximado ?? 13;
+  const hoje = new Date().toISOString().slice(0, 10);
+  return estimarValorAtualCDIRapido(
+    inv.valor_aplicado,
+    inv.data_aplicacao,
+    hoje,
+    cdiAnual,
+    taxa
+  );
+}
+
+function simulaçãoResgate(inv: Investimento, valorBrutoEstimado: number) {
+  const dataAplic = new Date(inv.data_aplicacao + "T12:00:00");
+  const dataResgate = new Date();
+  const { ir, valorLiquido } = calcularIRRegressivo(
+    valorBrutoEstimado,
+    inv.valor_aplicado,
+    dataAplic,
+    dataResgate
+  );
+  const lucro = valorBrutoEstimado - inv.valor_aplicado;
+  return { lucro, ir, valorLiquido };
+}
+
 export default function InvestimentosPage() {
   const [investimentos, setInvestimentos] =
     useState<Investimento[]>(MOCK_INVESTIMENTOS);
   const [loading, setLoading] = useState(true);
+  const [taxas, setTaxas] = useState<TaxasMercado | null>(null);
 
   async function fetchInvestimentos() {
     try {
@@ -103,6 +139,13 @@ export default function InvestimentosPage() {
 
   useEffect(() => {
     fetchInvestimentos();
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/market-data")
+      .then((r) => r.json())
+      .then(setTaxas)
+      .catch(() => setTaxas(null));
   }, []);
 
   const timeline = calcularTimelineLiquidez(investimentos);
@@ -233,9 +276,13 @@ export default function InvestimentosPage() {
                 <TableRow>
                   <TableHead>Nome</TableHead>
                   <TableHead>Valor</TableHead>
+                  <TableHead>Taxa</TableHead>
+                  <TableHead>Valor est.</TableHead>
                   <TableHead>Vencimento</TableHead>
                   <TableHead>Liquidez</TableHead>
                   <TableHead>Categoria</TableHead>
+                  <TableHead>Info. adicional</TableHead>
+                  <TableHead>Simulação resgate</TableHead>
                   <TableHead>Dias (IR)</TableHead>
                   <TableHead className="w-[180px] text-right">Ações</TableHead>
                 </TableRow>
@@ -244,7 +291,7 @@ export default function InvestimentosPage() {
                 {investimentos.length === 0 && !loading ? (
                   <TableRow>
                     <TableCell
-                      colSpan={7}
+                      colSpan={11}
                       className="h-24 text-center text-muted-foreground"
                     >
                       Nenhum investimento.{" "}
@@ -260,10 +307,32 @@ export default function InvestimentosPage() {
                     new Date(inv.data_vencimento) >= new Date(hoje)
                       ? getDiasPermanencia(inv.data_aplicacao, inv.data_vencimento)
                       : "-";
+                  const valorEst = valorAtualEstimado(inv, taxas);
+                  const temTaxa = inv.taxa_contratada != null && inv.taxa_contratada > 0 && (inv.indexador ?? "").trim() !== "";
+                  const badgeTaxa = temTaxa
+                    ? `${Number(inv.taxa_contratada)}% ${(inv.indexador ?? "").toUpperCase()}`
+                    : null;
+                  const infoAdicional: string[] = [];
+                  if (inv.quantidade != null && inv.quantidade > 0) infoAdicional.push(`Quantidade: ${inv.quantidade}`);
+                  const sim = valorEst != null ? simulaçãoResgate(inv, valorEst) : null;
                   return (
                     <TableRow key={inv.id}>
                       <TableCell className="font-medium">{inv.nome}</TableCell>
                       <TableCell>{formatarValor(inv.valor_aplicado)}</TableCell>
+                      <TableCell>
+                        {badgeTaxa ? (
+                          <Badge variant="secondary" className="whitespace-nowrap">
+                            {badgeTaxa}
+                          </Badge>
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {valorEst != null
+                          ? formatarValor(valorEst)
+                          : "—"}
+                      </TableCell>
                       <TableCell>
                         {new Date(inv.data_vencimento + "T12:00:00").toLocaleDateString(
                           "pt-BR"
@@ -274,6 +343,19 @@ export default function InvestimentosPage() {
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">{inv.categoria}</Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm max-w-[140px]">
+                        {infoAdicional.length > 0 ? infoAdicional.join(" · ") : "—"}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground max-w-[200px]">
+                        {sim ? (
+                          <span className="inline-block">
+                            Líq. {formatarValor(sim.valorLiquido)}
+                            <span className="block text-xs">IR {formatarValor(sim.ir)}</span>
+                          </span>
+                        ) : (
+                          "—"
+                        )}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {dias !== "-" ? `${dias} dias` : "-"}

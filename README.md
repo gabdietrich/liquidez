@@ -29,7 +29,7 @@ App para visualizar janelas de liquidez, vencimentos e rentabilidade real de inv
    - Authentication → Providers → Email: habilite "Email"
    - Authentication → URL Configuration: adicione em Redirect URLs:
      - `http://localhost:3000/auth/callback` (dev)
-     - `https://seu-dominio.netlify.app/auth/callback` (prod)
+     - `https://SEU-SITE.netlify.app/auth/callback` (prod)
 
 4. Rode o app:
    ```bash

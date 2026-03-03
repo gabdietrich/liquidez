@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import type { InvestimentoInsert, TipoLiquidez, Categoria } from "@/types/database";
 
+export const maxDuration = 60;
+
+export type InvestimentoExtraido = InvestimentoInsert & {
+  indexador?: string | null;
+  taxa_contratada?: number | null;
+};
+
 async function pdfToImages(pdfBase64: string): Promise<Array<{ base64: string; mimeType: string }>> {
   const { pdf } = await import("pdf-to-img");
   const dataUrl = pdfBase64.startsWith("data:")
@@ -31,7 +38,17 @@ function parseValor(val: unknown): number {
   return 0;
 }
 
-function validarEConverter(item: unknown): InvestimentoInsert | null {
+function parseTaxaContratada(val: unknown): number | null {
+  if (typeof val === "number" && !Number.isNaN(val)) return val;
+  if (typeof val === "string") {
+    const limpo = val.replace(/%/g, "").replace(",", ".").trim();
+    const n = parseFloat(limpo);
+    return Number.isNaN(n) ? null : n;
+  }
+  return null;
+}
+
+function validarEConverter(item: unknown): InvestimentoExtraido | null {
   if (!item || typeof item !== "object") return null;
   const obj = item as Record<string, unknown>;
 
@@ -42,6 +59,9 @@ function validarEConverter(item: unknown): InvestimentoInsert | null {
   const tipo = obj.tipo_liquidez;
   const categoria = obj.categoria;
   const cnpj = obj.cnpj_fundo;
+  const indexadorRaw = obj.indexador;
+  const taxaRaw = obj.taxa_contratada;
+  const quantidadeRaw = obj.quantidade;
 
   if (!nome || !(valor > 0)) return null;
 
@@ -61,6 +81,18 @@ function validarEConverter(item: unknown): InvestimentoInsert | null {
   const cnpjStr =
     typeof cnpj === "string" && cnpj.trim() ? cnpj.trim() : null;
 
+  const indexador =
+    typeof indexadorRaw === "string" && ["CDI", "IPCA", "PRE"].includes(indexadorRaw.trim().toUpperCase())
+      ? indexadorRaw.trim().toUpperCase()
+      : null;
+  const taxa_contratada = parseTaxaContratada(taxaRaw);
+  const quantidade =
+    typeof quantidadeRaw === "number" && Number.isInteger(quantidadeRaw) && quantidadeRaw > 0
+      ? quantidadeRaw
+      : typeof quantidadeRaw === "string"
+        ? (() => { const n = parseInt(quantidadeRaw, 10); return Number.isNaN(n) || n <= 0 ? null : n; })()
+        : null;
+
   return {
     nome: nome.slice(0, 200),
     valor_aplicado: valor,
@@ -69,11 +101,31 @@ function validarEConverter(item: unknown): InvestimentoInsert | null {
     data_vencimento: dataVencStr,
     tipo_liquidez: tipoLiquidez,
     categoria: categoriaValida,
+    ...(indexador != null && { indexador }),
+    ...(taxa_contratada != null && { taxa_contratada }),
+    ...(quantidade != null && { quantidade }),
   };
 }
 
 function hojeISO(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/** Limpeza rigorosa do retorno da IA para garantir JSON.parse mesmo com markdown (```json) ou texto extra. */
+function cleanJsonResponse(content: string): string {
+  if (!content || typeof content !== "string") return "[]";
+  let s = content.trim();
+  // Remove BOM e caracteres de controle no início
+  s = s.replace(/^\uFEFF/, "").replace(/^[\x00-\x1F]+/, "");
+  // Extrai bloco entre ```json e ``` ou entre ``` e ```
+  const codeBlockMatch = s.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (codeBlockMatch) {
+    s = codeBlockMatch[1].trim();
+  } else {
+    // Sem blocos: remove apenas prefixos/sufixos soltos de ```
+    s = s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+  }
+  return s || "[]";
 }
 
 function formatarDataParaISO(val: unknown): string | null {
@@ -95,12 +147,24 @@ CONSOLIDE as informações de TODAS as imagens enviadas em um único array de in
 
 const SYSTEM_PROMPT_TABELAS_RESUMO = `
 
-TABELAS DE RESUMO (dados parciais):
-- Trate cada LINHA da tabela como um investimento individual. Uma linha = um objeto no array.
-- Mapeie o campo "valor investido (R$)" ou "valor investido" para valor_aplicado.
-- Flexibilidade de datas: se data_aplicacao não estiver visível na tabela, retorne null para esse campo (não ignore o registro).
-- Data de vencimento: extraia a data que aparecer no final do nome do produto (ex: "CDB C6 26/06/2028" → data_vencimento "2028-06-26"). Se estiver em DD/MM/AAAA no nome, converta para AAAA-MM-DD no JSON.
-- Retorne SEMPRE um array de objetos, mesmo que encontre apenas uma linha válida.`;
+TABELAS E PRINTS DE TABELA (analise linha por linha):
+- Você deve extrair investimentos de tabelas mesmo que dados como "data de aplicação" estejam ausentes. Foque em: Nome do Produto (extraia taxa e vencimento do texto quando possível) e Valor Investido (R$). Se a data de aplicação não estiver visível, retorne null para data_aplicacao (não omita o registro).
+- Analise a imagem LINHA POR LINHA. Mesmo que faltem colunas, extraia tudo o que estiver disponível.
+- "Valor investido (R$)" ou "valor investido" e nome do produto são suficientes para criar um registro.
+- Se encontrar "CDB C6", "CDB FIBRA", "CDB LUSOBRASILEI" ou similares, trate CADA UM como um objeto separado (uma linha = um objeto).
+- NÃO retorne erro se a imagem for uma tabela parcial. Extraia o máximo de linhas possível.
+- Mapeie "valor investido (R$)" para valor_aplicado. Data de vencimento: extraia do nome quando no formato DD/MM/AAAA e converta para AAAA-MM-DD. Se data_aplicacao for nula, retorne null.
+- Retorne SEMPRE um array de objetos, mesmo que seja apenas uma linha válida.`;
+
+const SYSTEM_PROMPT_INDEXADOR_TAXA = `
+
+INDEXADOR E TAXA (extrair do nome do produto quando não houver campos explícitos):
+- Se o nome contiver "CDI", "IPCA" ou "PRE", identifique como o indexador (retorne "CDI", "IPCA" ou "PRE" no campo indexador).
+- Extraia o valor numérico da taxa associada (ex: "125.5%" no Agibank, "15.34%" no C6) para o campo taxa_contratada (apenas o número, ex: 125.5 ou 15.34).
+- Exemplo: "CDB FIBRA IPCA 9.1%" → indexador "IPCA", taxa_contratada 9.1.
+- Exemplo: "CDB Agibank CDI 125.5%" → indexador "CDI", taxa_contratada 125.5.
+- Se não identificar indexador ou taxa no nome, retorne null para esses campos.
+- Quantidade: quando a tabela ou o print tiver número de cotas/unidades (ex: 25 no Agibank, 70 no CDB PRE), extraia para o campo quantidade (número inteiro). Retorne null se não houver.`;
 
 const SYSTEM_PROMPT_PDF_CONTEXT = `
 
@@ -116,20 +180,27 @@ Formato OBRIGATÓRIO: retorne SEMPRE um array JSON. Exemplo:
     "data_aplicacao": "AAAA-MM-DD" ou null,
     "data_vencimento": "AAAA-MM-DD",
     "tipo_liquidez": "No Vencimento" ou "D+0" ou "D+30",
-    "categoria": "Flipping" ou "Reserva" ou "Longo Prazo"
+    "categoria": "Flipping" ou "Reserva" ou "Longo Prazo",
+    "indexador": "CDI" ou "IPCA" ou "PRE" ou null,
+    "taxa_contratada": 0.00 ou null,
+    "quantidade": número inteiro ou null
   }
 ]
 
 Regras:`;
 
 const SYSTEM_PROMPT_RULES = `
-- Cada linha de uma tabela de resumo = um investimento. Retorne um objeto por linha.
-- Se houver MÚLTIPLOS investimentos (tabela, lista), retorne um array com um objeto para cada um.
-- Se houver APENAS UM investimento/linha válida, retorne array com um único objeto: [ { "nome": "...", ... } ]. Nunca retorne um objeto sozinho, sempre um array.
-- valor_aplicado: use o valor de "valor investido (R$)" quando a tabela tiver essa coluna. Número com ponto para decimais (ex: 50000.00).
+- Cada linha de uma tabela = um investimento. CDB C6, CDB FIBRA, CDB LUSOBRASILEI etc. = cada um um objeto separado no array.
+- Tabela parcial ou com colunas faltando: NÃO falhe. Extraia o máximo de linhas possível usando "valor investido (R$)" e nome do produto.
+- Se houver MÚLTIPLOS investimentos (tabela, lista), retorne um array com um objeto para cada linha.
+- Se houver APENAS UM investimento/linha válida, retorne array com um único objeto: [ { "nome": "...", ... } ]. Sempre array, nunca objeto sozinho.
+- valor_aplicado: use "valor investido (R$)" quando existir. Número com ponto para decimais (ex: 50000.00).
 - data_aplicacao: se não estiver na tabela/imagem, retorne null (mantenha o registro).
 - data_vencimento: extraia do final do nome do produto quando no formato DD/MM/AAAA (ex: CDB C6 26/06/2028 → "2028-06-26").
 - categoria: infira com base no nome do ativo ou data de vencimento.
+- indexador: do nome do produto, identifique CDI, IPCA ou PRE quando presente. Retorne null se não houver.
+- taxa_contratada: extraia o número da taxa em % do nome (ex: "9.1%" → 9.1, "125.5%" → 125.5). Apenas o número. Retorne null se não houver.
+- quantidade: número de cotas/unidades quando aparecer na tabela (ex: 25, 70). Retorne null se não houver.
 - Para campos não encontrados, retorne null. Não invente dados.
 - Se não houver investimentos em nenhuma imagem, retorne [].`;
 
@@ -219,7 +290,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const model = process.env.OPENAI_MODEL ?? "gpt-4o"; // gpt-4o-mini também suporta visão
+  const model = "gpt-4o-mini";
 
   const userContent: Array<{ type: "image_url"; image_url: { url: string } }> =
     images.map((img) => ({
@@ -232,6 +303,7 @@ export async function POST(request: NextRequest) {
   const systemPrompt =
     SYSTEM_PROMPT_BASE +
     SYSTEM_PROMPT_TABELAS_RESUMO +
+    SYSTEM_PROMPT_INDEXADOR_TAXA +
     (isFromPdf ? SYSTEM_PROMPT_PDF_CONTEXT : "") +
     SYSTEM_PROMPT_FORMAT +
     SYSTEM_PROMPT_RULES;
@@ -265,31 +337,50 @@ export async function POST(request: NextRequest) {
 
     console.log("LLM Raw Response:", content);
 
-    let jsonStr = content.trim();
-    if (jsonStr.startsWith("```")) {
-      jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "").trim();
-    }
+    const jsonStr = cleanJsonResponse(content);
 
     let parsed: unknown;
     try {
       parsed = JSON.parse(jsonStr);
     } catch (parseErr) {
-      console.error("Falha ao parsear JSON da LLM:", parseErr);
-      return NextResponse.json(
-        { error: "Falha ao processar estrutura da tabela" },
-        { status: 500 }
-      );
+      // Última tentativa: extrair objeto/array entre primeiro [ e último ] ou { e }
+      const firstBracket = jsonStr.indexOf("[");
+      const lastBracket = jsonStr.lastIndexOf("]");
+      const firstBrace = jsonStr.indexOf("{");
+      const lastBrace = jsonStr.lastIndexOf("}");
+      const tryArray =
+        firstBracket !== -1 && lastBracket > firstBracket
+          ? jsonStr.slice(firstBracket, lastBracket + 1)
+          : null;
+      const tryObj =
+        firstBrace !== -1 && lastBrace > firstBrace
+          ? jsonStr.slice(firstBrace, lastBrace + 1)
+          : null;
+      try {
+        if (tryArray) parsed = JSON.parse(tryArray);
+        else if (tryObj) parsed = JSON.parse(tryObj);
+        else throw parseErr;
+      } catch (fallbackErr) {
+        console.error("Falha ao parsear JSON da LLM:", parseErr, "Fallback:", fallbackErr);
+        return NextResponse.json(
+          { error: "Falha ao processar estrutura da tabela" },
+          { status: 500 }
+        );
+      }
     }
 
-    const arr =
-      Array.isArray(parsed)
-        ? parsed
-        : (parsed as Record<string, unknown>).investimentos ??
-          (parsed as Record<string, unknown>).data ??
-          [];
+    const arr = Array.isArray(parsed)
+      ? parsed
+      : (parsed as Record<string, unknown>).investimentos ??
+        (parsed as Record<string, unknown>).data ??
+        (parsed !== null &&
+        typeof parsed === "object" &&
+        "nome" in (parsed as Record<string, unknown>)
+          ? [parsed]
+          : []);
     const items = Array.isArray(arr) ? arr : [];
 
-    const resultados: InvestimentoInsert[] = [];
+    const resultados: InvestimentoExtraido[] = [];
     for (const item of items) {
       const validado = validarEConverter(item);
       if (validado) resultados.push(validado);

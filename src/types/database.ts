@@ -10,6 +10,9 @@ export interface Investimento {
   data_vencimento: string;
   tipo_liquidez: TipoLiquidez;
   categoria: Categoria;
+  indexador?: string | null;
+  taxa_contratada?: number | null;
+  quantidade?: number | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -22,6 +25,9 @@ export interface InvestimentoInsert {
   data_vencimento: string;
   tipo_liquidez: TipoLiquidez;
   categoria: Categoria;
+  indexador?: string | null;
+  taxa_contratada?: number | null;
+  quantidade?: number | null;
 }
 
 export interface HistoricoLiquidacao {

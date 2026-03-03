@@ -142,8 +142,11 @@ export default function InputInteligentePage() {
               }}
               onError={(message) => {
                 setErro(message);
-                if (message && !message.includes("Nenhum investimento identificado")) {
-                  toast.error(message);
+                if (message) {
+                  console.error("[Input] Erro no upload:", message);
+                  if (!message.includes("Nenhum investimento identificado")) {
+                    toast.error(message);
+                  }
                 }
               }}
               onAviso={setAviso}

@@ -20,6 +20,9 @@ CREATE TABLE liq_investimentos (
   data_vencimento DATE NOT NULL,
   tipo_liquidez TEXT NOT NULL CHECK (tipo_liquidez IN ('D+0', 'D+30', 'No Vencimento')),
   categoria TEXT NOT NULL CHECK (categoria IN ('Reserva', 'Longo Prazo', 'Flipping')),
+  indexador TEXT,
+  taxa_contratada DECIMAL(10, 4),
+  quantidade INTEGER,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
