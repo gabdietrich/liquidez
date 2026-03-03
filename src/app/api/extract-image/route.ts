@@ -1,12 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-import type { InvestimentoInsert, TipoLiquidez, Categoria } from "@/types/database";
+import type { TipoLiquidez, Categoria } from "@/types/database";
 
 export const maxDuration = 60;
 
-export type InvestimentoExtraido = InvestimentoInsert & {
+export type InvestimentoExtraido = {
+  nome: string;
+  valor_aplicado: number;
+  cnpj_fundo: string | null;
+  data_aplicacao: string | null;
+  data_vencimento: string | null;
+  tipo_liquidez: TipoLiquidez;
+  categoria: Categoria;
   indexador?: string | null;
   taxa_contratada?: number | null;
+  quantidade?: number | null;
 };
 
 async function pdfToImages(pdfBase64: string): Promise<Array<{ base64: string; mimeType: string }>> {
@@ -65,11 +73,9 @@ function validarEConverter(item: unknown): InvestimentoExtraido | null {
 
   if (!nome || !(valor > 0)) return null;
 
-  let dataAplicStr = formatarDataParaISO(dataAplic);
-  let dataVencStr = formatarDataParaISO(dataVenc);
-  if (!dataVencStr) dataVencStr = dataAplicStr ?? hojeISO();
-  if (!dataAplicStr) dataAplicStr = dataVencStr ?? hojeISO();
-  if (!dataAplicStr || !dataVencStr) return null;
+  const dataAplicStr = formatarDataParaISO(dataAplic);
+  const dataVencStr =
+    formatarDataParaISO(dataVenc) ?? extrairDataDoNome(nome) ?? null;
 
   const tipoLiquidez = VALID_TIPOS.includes(tipo as TipoLiquidez)
     ? (tipo as TipoLiquidez)
@@ -101,14 +107,17 @@ function validarEConverter(item: unknown): InvestimentoExtraido | null {
     data_vencimento: dataVencStr,
     tipo_liquidez: tipoLiquidez,
     categoria: categoriaValida,
-    ...(indexador != null && { indexador }),
-    ...(taxa_contratada != null && { taxa_contratada }),
-    ...(quantidade != null && { quantidade }),
+    indexador,
+    taxa_contratada,
+    quantidade,
   };
 }
 
-function hojeISO(): string {
-  return new Date().toISOString().slice(0, 10);
+function extrairDataDoNome(nome: string): string | null {
+  const m = nome.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if (!m) return null;
+  const [, dia, mes, ano] = m;
+  return `${ano}-${mes}-${dia}`;
 }
 
 /** Limpeza rigorosa do retorno da IA para garantir JSON.parse mesmo com markdown (```json) ou texto extra. */
@@ -117,6 +126,8 @@ function cleanJsonResponse(content: string): string {
   let s = content.trim();
   // Remove BOM e caracteres de controle no início
   s = s.replace(/^\uFEFF/, "").replace(/^[\x00-\x1F]+/, "");
+  // Remove marcação markdown comum
+  s = s.replace(/^json\s*/i, "").trim();
   // Extrai bloco entre ```json e ``` ou entre ``` e ```
   const codeBlockMatch = s.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (codeBlockMatch) {
@@ -125,6 +136,8 @@ function cleanJsonResponse(content: string): string {
     // Sem blocos: remove apenas prefixos/sufixos soltos de ```
     s = s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
   }
+  // Remove comentários JS que quebram JSON.parse
+  s = s.replace(/^\s*\/\/.*$/gm, "").trim();
   return s || "[]";
 }
 
@@ -141,68 +154,39 @@ function formatarDataParaISO(val: unknown): string | null {
   return null;
 }
 
-const SYSTEM_PROMPT_BASE = `Você é um especialista financeiro. Serão fornecidas uma ou mais imagens de extratos de investimento.
+const SYSTEM_PROMPT = `Você deve extrair investimentos de tabelas mesmo que dados como "data de aplicação" estejam ausentes.
 
-CONSOLIDE as informações de TODAS as imagens enviadas em um único array de investimentos. Se o mesmo investimento (mesmo ativo/nome) aparecer em mais de uma imagem, combine os dados em um único objeto, priorizando os valores mais completos.`;
+Foque em:
+- Nome do Produto (extraia taxa e vencimento do texto se possível)
+- Valor Investido (R$)
 
-const SYSTEM_PROMPT_TABELAS_RESUMO = `
+Se a data de aplicação for ausente, retorne null em data_aplicacao.
+Não invente dados.
 
-TABELAS E PRINTS DE TABELA (analise linha por linha):
-- Você deve extrair investimentos de tabelas mesmo que dados como "data de aplicação" estejam ausentes. Foque em: Nome do Produto (extraia taxa e vencimento do texto quando possível) e Valor Investido (R$). Se a data de aplicação não estiver visível, retorne null para data_aplicacao (não omita o registro).
-- Analise a imagem LINHA POR LINHA. Mesmo que faltem colunas, extraia tudo o que estiver disponível.
-- "Valor investido (R$)" ou "valor investido" e nome do produto são suficientes para criar um registro.
-- Se encontrar "CDB C6", "CDB FIBRA", "CDB LUSOBRASILEI" ou similares, trate CADA UM como um objeto separado (uma linha = um objeto).
-- NÃO retorne erro se a imagem for uma tabela parcial. Extraia o máximo de linhas possível.
-- Mapeie "valor investido (R$)" para valor_aplicado. Data de vencimento: extraia do nome quando no formato DD/MM/AAAA e converta para AAAA-MM-DD. Se data_aplicacao for nula, retorne null.
-- Retorne SEMPRE um array de objetos, mesmo que seja apenas uma linha válida.`;
+Retorne SEMPRE JSON no formato:
+{
+  "investimentos": [
+    {
+      "nome": "Nome do ativo",
+      "valor_aplicado": 0.00,
+      "data_aplicacao": "AAAA-MM-DD" ou null,
+      "data_vencimento": "AAAA-MM-DD" ou null,
+      "tipo_liquidez": "No Vencimento" ou "D+0" ou "D+30",
+      "categoria": "Flipping" ou "Reserva" ou "Longo Prazo",
+      "cnpj_fundo": "XX.XXX.XXX/XXXX-XX" ou null,
+      "indexador": "CDI" ou "IPCA" ou "PRE" ou null,
+      "taxa_contratada": número ou null,
+      "quantidade": número inteiro ou null
+    }
+  ]
+}
 
-const SYSTEM_PROMPT_INDEXADOR_TAXA = `
-
-INDEXADOR E TAXA (extrair do nome do produto quando não houver campos explícitos):
-- Se o nome contiver "CDI", "IPCA" ou "PRE", identifique como o indexador (retorne "CDI", "IPCA" ou "PRE" no campo indexador).
-- Extraia o valor numérico da taxa associada (ex: "125.5%" no Agibank, "15.34%" no C6) para o campo taxa_contratada (apenas o número, ex: 125.5 ou 15.34).
-- Exemplo: "CDB FIBRA IPCA 9.1%" → indexador "IPCA", taxa_contratada 9.1.
-- Exemplo: "CDB Agibank CDI 125.5%" → indexador "CDI", taxa_contratada 125.5.
-- Se não identificar indexador ou taxa no nome, retorne null para esses campos.
-- Quantidade: quando a tabela ou o print tiver número de cotas/unidades (ex: 25 no Agibank, 70 no CDB PRE), extraia para o campo quantidade (número inteiro). Retorne null se não houver.`;
-
-const SYSTEM_PROMPT_PDF_CONTEXT = `
-
-CONTEXTO PARA PDF: As imagens enviadas representam páginas sequenciais de um único documento financeiro. Analise TODAS elas para identificar e extrair TODOS os ativos mencionados. Se um ativo começar em uma página e terminar em outra, consolide as informações em um único objeto.`;
-
-const SYSTEM_PROMPT_FORMAT = `
-
-Formato OBRIGATÓRIO: retorne SEMPRE um array JSON. Exemplo:
-[
-  {
-    "nome": "Nome do ativo",
-    "valor_aplicado": 0.00,
-    "data_aplicacao": "AAAA-MM-DD" ou null,
-    "data_vencimento": "AAAA-MM-DD",
-    "tipo_liquidez": "No Vencimento" ou "D+0" ou "D+30",
-    "categoria": "Flipping" ou "Reserva" ou "Longo Prazo",
-    "indexador": "CDI" ou "IPCA" ou "PRE" ou null,
-    "taxa_contratada": 0.00 ou null,
-    "quantidade": número inteiro ou null
-  }
-]
-
-Regras:`;
-
-const SYSTEM_PROMPT_RULES = `
-- Cada linha de uma tabela = um investimento. CDB C6, CDB FIBRA, CDB LUSOBRASILEI etc. = cada um um objeto separado no array.
-- Tabela parcial ou com colunas faltando: NÃO falhe. Extraia o máximo de linhas possível usando "valor investido (R$)" e nome do produto.
-- Se houver MÚLTIPLOS investimentos (tabela, lista), retorne um array com um objeto para cada linha.
-- Se houver APENAS UM investimento/linha válida, retorne array com um único objeto: [ { "nome": "...", ... } ]. Sempre array, nunca objeto sozinho.
-- valor_aplicado: use "valor investido (R$)" quando existir. Número com ponto para decimais (ex: 50000.00).
-- data_aplicacao: se não estiver na tabela/imagem, retorne null (mantenha o registro).
-- data_vencimento: extraia do final do nome do produto quando no formato DD/MM/AAAA (ex: CDB C6 26/06/2028 → "2028-06-26").
-- categoria: infira com base no nome do ativo ou data de vencimento.
-- indexador: do nome do produto, identifique CDI, IPCA ou PRE quando presente. Retorne null se não houver.
-- taxa_contratada: extraia o número da taxa em % do nome (ex: "9.1%" → 9.1, "125.5%" → 125.5). Apenas o número. Retorne null se não houver.
-- quantidade: número de cotas/unidades quando aparecer na tabela (ex: 25, 70). Retorne null se não houver.
-- Para campos não encontrados, retorne null. Não invente dados.
-- Se não houver investimentos em nenhuma imagem, retorne [].`;
+Regras adicionais:
+- Analise imagens de tabelas linha por linha.
+- Cada linha válida da tabela deve virar um item em investimentos.
+- Mapeie "Valor Investido (R$)" para valor_aplicado.
+- Se houver data no nome do produto (DD/MM/AAAA), use como data_vencimento.
+- Se não houver investimentos, retorne {"investimentos": []}.`;
 
 const MAX_PAGES_WARNING = 10;
 
@@ -300,13 +284,9 @@ export async function POST(request: NextRequest) {
       },
     }));
 
-  const systemPrompt =
-    SYSTEM_PROMPT_BASE +
-    SYSTEM_PROMPT_TABELAS_RESUMO +
-    SYSTEM_PROMPT_INDEXADOR_TAXA +
-    (isFromPdf ? SYSTEM_PROMPT_PDF_CONTEXT : "") +
-    SYSTEM_PROMPT_FORMAT +
-    SYSTEM_PROMPT_RULES;
+  const systemPrompt = isFromPdf
+    ? `${SYSTEM_PROMPT}\n\nAs imagens podem ser páginas de um mesmo PDF. Consolide o resultado no mesmo array.`
+    : SYSTEM_PROMPT;
 
   try {
     const openai = new OpenAI({ apiKey });

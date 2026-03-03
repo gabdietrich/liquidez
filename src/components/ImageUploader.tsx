@@ -2,15 +2,12 @@
 
 import { useState, useCallback } from "react";
 import { ImageIcon, Loader2 } from "lucide-react";
-import imageCompression from "browser-image-compression";
 import type { InvestimentoInsert } from "@/types/database";
 
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/jpg"];
 const ACCEPTED_PDF_TYPES = ["application/pdf", "application/x-pdf"];
 const ACCEPTED_TYPES = [...ACCEPTED_IMAGE_TYPES, ...ACCEPTED_PDF_TYPES];
 
-/** Imagens comprimidas para no máximo 1MB para evitar Payload Too Large e acelerar upload. */
-const MAX_IMAGE_SIZE_MB = 1;
 const MAX_PDF_SIZE_BYTES = 5 * 1024 * 1024;
 
 function isPdfFile(file: File): boolean {
@@ -35,6 +32,7 @@ interface ImageUploaderProps {
   onExtract: (dados: InvestimentoInsert[]) => void;
   onError?: (message: string | null) => void;
   onAviso?: (message: string | null) => void;
+  preprocessImage?: (file: File) => Promise<File>;
   disabled?: boolean;
 }
 
@@ -42,6 +40,7 @@ export function ImageUploader({
   onExtract,
   onError,
   onAviso,
+  preprocessImage,
   disabled = false,
 }: ImageUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
@@ -78,7 +77,11 @@ export function ImageUploader({
 
         if (imageFiles.length > 0) {
           body.images = await Promise.all(
-            imageFiles.map((file) => compressImageIfNeeded(file))
+            imageFiles.map(async (file) => {
+              const processed = preprocessImage ? await preprocessImage(file) : file;
+              const base64 = await fileToBase64(processed);
+              return { base64, mimeType: processed.type || "image/jpeg" };
+            })
           );
         }
 
@@ -132,7 +135,7 @@ export function ImageUploader({
         setLoading(false);
       }
     },
-    [onExtract, onError, onAviso]
+    [onExtract, onError, onAviso, preprocessImage]
   );
 
   function fileToBase64(file: File): Promise<string> {
@@ -146,25 +149,6 @@ export function ImageUploader({
       reader.onerror = () => reject(reader.error);
       reader.readAsDataURL(file);
     });
-  }
-
-  /** Comprime imagem (ex.: prints iPhone em alta resolução) para no máximo 1MB antes do envio. */
-  async function compressImageIfNeeded(file: File): Promise<{ base64: string; mimeType: string }> {
-    const isImage =
-      ACCEPTED_IMAGE_TYPES.includes(file.type?.toLowerCase() ?? "") ||
-      /\.(png|jpe?g)$/i.test(file.name ?? "");
-    if (!isImage) {
-      const b64 = await fileToBase64(file);
-      return { base64: b64, mimeType: file.type || "image/jpeg" };
-    }
-    const compressed = await imageCompression(file, {
-      maxSizeMB: MAX_IMAGE_SIZE_MB,
-      maxWidthOrHeight: 1920,
-      useWebWorker: true,
-      fileType: "image/jpeg",
-    });
-    const base64 = await fileToBase64(compressed);
-    return { base64, mimeType: "image/jpeg" };
   }
 
   function handleDragEnter(e: React.DragEvent) {

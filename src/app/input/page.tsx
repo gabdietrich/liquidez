@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { FileText, Loader2, Sparkles } from "lucide-react";
+import imageCompression from "browser-image-compression";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -31,7 +32,23 @@ const EXEMPLO_EXTRATO = `CDB XP 12% a.a. - R$ 50.000,00 - Aplicação: 15/01/202
 Tesouro Selic 2027 - R$ 100.000,00 - 20/06/2023 - 20/06/2027 - Reserva
 LCI Banco Inter - R$ 25.000,00 - 01/03/2024 - 01/09/2024 - D+30 - Flipping`;
 
+const MAX_IMAGE_SIZE_MB = 1;
+
 export default function InputInteligentePage() {
+  async function preprocessImage(file: File): Promise<File> {
+    const isImage = /image\/(png|jpe?g)/i.test(file.type) || /\.(png|jpe?g)$/i.test(file.name);
+    if (!isImage) return file;
+
+    // Comprime prints de alta resolução (ex.: iPhone) para no máximo 1MB
+    const compressed = await imageCompression(file, {
+      maxSizeMB: MAX_IMAGE_SIZE_MB,
+      maxWidthOrHeight: 1920,
+      useWebWorker: true,
+      fileType: "image/jpeg",
+    });
+    return compressed;
+  }
+
   const [texto, setTexto] = useState("");
   const [extraidos, setExtraidos] = useState<InvestimentoInsert[]>([]);
   const [loading, setLoading] = useState(false);
@@ -150,6 +167,7 @@ export default function InputInteligentePage() {
                 }
               }}
               onAviso={setAviso}
+              preprocessImage={preprocessImage}
               disabled={loading}
             />
             {aviso && (
