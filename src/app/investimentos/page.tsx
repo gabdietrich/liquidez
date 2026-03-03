@@ -32,6 +32,7 @@ import { calcularTimelineLiquidez } from "@/lib/timeline-liquidez";
 import { getDiasPermanencia } from "@/lib/ir-regressivo";
 import { EditInvestimentoDialog } from "@/components/EditInvestimentoDialog";
 import { DeleteInvestimentoDialog } from "@/components/DeleteInvestimentoDialog";
+import { ResgateModal } from "@/components/investimentos/ResgateModal";
 
 // Dados mock para desenvolvimento sem Supabase
 const MOCK_INVESTIMENTOS: Investimento[] = [
@@ -234,7 +235,7 @@ export default function InvestimentosPage() {
                   <TableHead>Liquidez</TableHead>
                   <TableHead>Categoria</TableHead>
                   <TableHead>Dias (IR)</TableHead>
-                  <TableHead className="w-[100px] text-right">Ações</TableHead>
+                  <TableHead className="w-[180px] text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -277,6 +278,10 @@ export default function InvestimentosPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
+                          <ResgateModal
+                            investimento={inv}
+                            onLiquidado={fetchInvestimentos}
+                          />
                           <EditInvestimentoDialog
                             investimento={inv}
                             onSaved={fetchInvestimentos}

@@ -4,45 +4,62 @@ import { useState, useCallback } from "react";
 import { ImageIcon, Loader2 } from "lucide-react";
 import type { InvestimentoInsert } from "@/types/database";
 
-const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/jpg"];
+const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/jpg"];
+const ACCEPTED_PDF_TYPE = "application/pdf";
+const ACCEPTED_TYPES = [...ACCEPTED_IMAGE_TYPES, ACCEPTED_PDF_TYPE];
 
 interface ImageUploaderProps {
   onExtract: (dados: InvestimentoInsert[]) => void;
   onError?: (message: string | null) => void;
+  onAviso?: (message: string | null) => void;
   disabled?: boolean;
 }
 
 export function ImageUploader({
   onExtract,
   onError,
+  onAviso,
   disabled = false,
 }: ImageUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const processImages = useCallback(
+  const processFiles = useCallback(
     async (files: File[]) => {
       const validFiles = files.filter((f) => ACCEPTED_TYPES.includes(f.type));
       if (validFiles.length === 0) {
-        onError?.("Formato inválido. Use PNG ou JPG.");
+        onError?.("Formato inválido. Use PNG, JPG ou PDF.");
         return;
       }
 
       setLoading(true);
       onError?.(null);
+      onAviso?.(null);
 
       try {
-        const images = await Promise.all(
-          validFiles.map(async (file) => ({
-            base64: await fileToBase64(file),
-            mimeType: file.type,
-          }))
-        );
+        const pdfFiles = validFiles.filter((f) => f.type === ACCEPTED_PDF_TYPE);
+        const imageFiles = validFiles.filter((f) => ACCEPTED_IMAGE_TYPES.includes(f.type));
+
+        const body: { pdf?: string; images?: Array<{ base64: string; mimeType: string }> } = {};
+
+        if (pdfFiles.length > 0) {
+          const pdfBase64 = await fileToBase64(pdfFiles[0]);
+          body.pdf = pdfBase64;
+        }
+
+        if (imageFiles.length > 0) {
+          body.images = await Promise.all(
+            imageFiles.map(async (file) => ({
+              base64: await fileToBase64(file),
+              mimeType: file.type,
+            }))
+          );
+        }
 
         const res = await fetch("/api/extract-image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ images }),
+          body: JSON.stringify(body),
         });
 
         if (!res.ok) {
@@ -50,19 +67,20 @@ export function ImageUploader({
           throw new Error(err.error ?? `Erro ${res.status}`);
         }
 
-        const { dados } = await res.json();
+        const { dados, aviso } = await res.json();
         if (Array.isArray(dados)) {
           onExtract(dados);
+          if (aviso) onAviso?.(aviso);
         } else {
-          onError?.("Nenhum investimento encontrado nas imagens.");
+          onError?.("Nenhum investimento encontrado.");
         }
       } catch (e) {
-        onError?.(e instanceof Error ? e.message : "Erro ao processar imagens.");
+        onError?.(e instanceof Error ? e.message : "Erro ao processar arquivos.");
       } finally {
         setLoading(false);
       }
     },
-    [onExtract, onError]
+    [onExtract, onError, onAviso]
   );
 
   function fileToBase64(file: File): Promise<string> {
@@ -102,12 +120,12 @@ export function ImageUploader({
     if (disabled || loading) return;
 
     const files = Array.from(e.dataTransfer.files);
-    if (files.length > 0) processImages(files);
+    if (files.length > 0) processFiles(files);
   }
 
   function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
-    if (files.length > 0) processImages(files);
+    if (files.length > 0) processFiles(files);
     e.target.value = "";
   }
 
@@ -125,7 +143,7 @@ export function ImageUploader({
     >
       <input
         type="file"
-        accept="image/png,image/jpeg,image/jpg"
+        accept="image/png,image/jpeg,image/jpg,application/pdf"
         multiple
         onChange={handleFileInput}
         className="absolute inset-0 cursor-pointer opacity-0"
@@ -135,17 +153,17 @@ export function ImageUploader({
         <>
           <Loader2 className="h-10 w-10 animate-spin text-primary" />
           <p className="mt-2 text-sm text-muted-foreground">
-            Extraindo investimentos das imagens...
+            Extraindo investimentos...
           </p>
         </>
       ) : (
         <>
           <ImageIcon className="h-10 w-10 text-muted-foreground" />
           <p className="mt-2 text-sm font-medium text-foreground">
-            Arraste imagens ou clique para selecionar (várias permitidas)
+            Arraste imagens/PDF ou clique para selecionar (vários permitidos)
           </p>
           <p className="text-xs text-muted-foreground">
-            PNG ou JPG
+            PNG, JPG ou PDF
           </p>
         </>
       )}

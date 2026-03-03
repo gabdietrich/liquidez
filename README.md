@@ -22,6 +22,7 @@ App para visualizar janelas de liquidez, vencimentos e rentabilidade real de inv
    - Preencha `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - Execute o script `supabase/EXECUTAR_NO_SUPABASE.sql` no SQL Editor do Supabase
    - Execute o script `supabase/ADICIONAR_AUTH_RLS.sql` para login e RLS
+   - Execute o script `supabase/CRIAR_LIQ_HISTORICO.sql` para histórico de liquidações
    - Para extração com IA: configure `OPENAI_API_KEY` e opcionalmente `OPENAI_MODEL` (padrão: gpt-4o)
 
 3. **Auth (Supabase Dashboard):**
@@ -40,13 +41,42 @@ App para visualizar janelas de liquidez, vencimentos e rentabilidade real de inv
 - **Login:** Proteção por email e senha via Supabase Auth. Cada usuário vê apenas seus investimentos.
 - **Input Inteligente:** Cole o extrato bancário em um textarea; usa GPT-4o para extrair investimentos de texto livre. Fallback para regex se a API não estiver configurada.
 - **Timeline de Liquidez:** Dashboard mostrando quanto terá disponível mês a mês nos próximos 2 anos.
+- **Liquidar Investimento:** Resgate com cálculo de IR, narrativa gerada por IA e movimentação para histórico.
 - **IR Regressivo:** Cálculo automático conforme tempo de permanência:
   - Até 180 dias: 22,5%
   - 181 a 360 dias: 20%
   - 361 a 720 dias: 17,5%
   - Acima de 720 dias: 15%
 
-## Deploy no Netlify
+## Deploy
+
+### Vercel (recomendado para Next.js)
+
+1. **Faça login na Vercel:**
+   ```bash
+   npx vercel login
+   ```
+
+2. **Deploy:**
+   ```bash
+   npx vercel
+   ```
+   Ou conecte o repositório em [vercel.com/new](https://vercel.com/new).
+
+3. **Variáveis de ambiente** (Project Settings → Environment Variables):
+   | Variável | Valor |
+   |----------|-------|
+   | `NEXT_PUBLIC_SUPABASE_URL` | `https://xxx.supabase.co` |
+   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | sua chave anon |
+   | `OPENAI_API_KEY` | sua chave OpenAI |
+   | `OPENAI_MODEL` | `gpt-4o` (opcional) |
+
+4. **Auth:** Em Supabase Dashboard → Authentication → URL Configuration, adicione em Redirect URLs:
+   - `https://seu-projeto.vercel.app/auth/callback`
+
+---
+
+### Netlify
 
 1. **Crie um repositório Git** (se ainda não tiver):
    ```bash

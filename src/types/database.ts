@@ -24,6 +24,24 @@ export interface InvestimentoInsert {
   categoria: Categoria;
 }
 
+export interface HistoricoLiquidacao {
+  id: string;
+  user_id: string;
+  nome: string;
+  valor_aplicado: number;
+  valor_bruto_resgate: number;
+  ir: number;
+  valor_liquido: number;
+  cnpj_fundo: string | null;
+  data_aplicacao: string;
+  data_vencimento: string;
+  data_resgate: string;
+  tipo_liquidez: TipoLiquidez;
+  categoria: Categoria;
+  resumo_narrativa: string | null;
+  created_at?: string;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -31,6 +49,9 @@ export interface Database {
         Row: Investimento;
         Insert: InvestimentoInsert;
         Update: Partial<InvestimentoInsert>;
+      };
+      liq_historico: {
+        Row: HistoricoLiquidacao;
       };
     };
   };

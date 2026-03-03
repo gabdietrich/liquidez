@@ -35,6 +35,7 @@ export default function InputInteligentePage() {
   const [extraidos, setExtraidos] = useState<InvestimentoInsert[]>([]);
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
   const router = useRouter();
 
   async function handleExtrair() {
@@ -44,6 +45,7 @@ export default function InputInteligentePage() {
     }
     setLoading(true);
     setErro(null);
+    setAviso(null);
     try {
       const dados = await extrairInvestimentosLLM(texto);
       setExtraidos(dados);
@@ -130,8 +132,12 @@ export default function InputInteligentePage() {
                 setErro(null);
               }}
               onError={setErro}
+              onAviso={setAviso}
               disabled={loading}
             />
+            {aviso && (
+              <p className="text-sm text-muted-foreground">{aviso}</p>
+            )}
           </div>
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
